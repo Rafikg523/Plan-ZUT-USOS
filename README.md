@@ -20,8 +20,9 @@ Aplikacja nasłuchuje tylko na adresie lokalnym. Hasło jest wpisywane wyłączn
 - Nawiguj tygodniami w kalendarzu.
 - Po prawej rozwiń kierunek, przedmiot i formę zajęć.
 - Przy kierunku możesz ukryć lub pokazać wszystkie jego wykłady. Litery przy nazwie przedmiotu pokazują stan każdej formy: czerwony oznacza brak zaznaczonych grup, zielony jedną, a żółty więcej niż jedną.
-- Wybór grup zapisuje się automatycznie w tej przeglądarce osobno dla każdego numeru albumu. Przyciski nad listą przedmiotów pozwalają zapisać go do czytelnego pliku TXT lub wgrać taki plik. Plik zawiera nazwę przedmiotu, formę, kod i numer grupy; można go wgrać tylko do planu tego samego numeru albumu.
+- Wybór grup zapisuje się automatycznie w tej przeglądarce osobno dla każdego numeru albumu. Przyciski nad listą przedmiotów pozwalają zapisać go do czytelnego pliku TXT lub wgrać taki plik. Przy każdej formie plik pokazuje nazwę przedmiotu, kod oraz zmianę z grupy w planie USOS na wybrane grupy (również gdy forma została ukryta); można go wgrać tylko do planu tego samego numeru albumu.
 - Po pobraniu własnego planu kalendarz jest od razu dostępny. Pozostałe grupy i ich terminy pobierają się równolegle w tle, a postęp jest widoczny nad listą przedmiotów.
+- Podczas pobierania planu pasek pokazuje liczbę ukończonych tygodni; pobieranie grup i odtwarzanie wyboru pokazują liczbę ukończonych przedmiotów. Przy logowaniu i pojedynczych pobraniach widać animowany wskaźnik pracy.
 - Zaznacz wybraną grupę, aby nałożyć jej terminy na kalendarz. Przełączanie grup i tygodni korzysta z danych w pamięci, bez kolejnego pobierania zajęć.
 - Jeśli pobranie grup dla przedmiotu nie powiedzie się, ponów je przyciskiem w jego sekcji.
 - W szczegółach zajęć można odczytać listę uczestników, jeśli zalogowane konto ma do niej dostęp w USOS.

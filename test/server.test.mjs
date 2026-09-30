@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCourseGroups, parseWeekPlan, termForDate } from '../server.mjs';
+import { fetchSchedule, parseCourseGroups, parseWeekPlan, termForDate } from '../server.mjs';
+
+test('reports completed weeks while fetching a schedule', async () => {
+  const updates=[];
+  const result=await fetchSchedule('2026-10-05','2026-10-18',(completed,total)=>updates.push([completed,total]),async()=>'<usos-timetable></usos-timetable>');
+  assert.equal(result.weeks,2);
+  assert.deepEqual(updates,[[0,2],[1,2],[2,2]]);
+});
 
 test('wyznacza cykl dydaktyczny', () => {
   assert.equal(termForDate('2026-10-01'),'2026/2027-Z');

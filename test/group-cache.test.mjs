@@ -10,8 +10,8 @@ test('preloads group schedules and toggles previews without further network requ
   const context = vm.createContext({
     URL, console, setTimeout, clearTimeout,
     localStorage: { getItem: () => null },
-    document: { addEventListener(){}, querySelector: selector => {
-      if (!elements.has(selector)) elements.set(selector, {addEventListener(){}, classList:{toggle(){}}, style:{}});
+    document: { addEventListener(){}, createElement: () => ({textContent:'',setAttribute(){}}), querySelector: selector => {
+      if (!elements.has(selector)) elements.set(selector, {addEventListener(){}, classList:{toggle(){}}, style:{}, replaceChildren(){this.textContent=''}, append(...children){this.textContent+=children.map(child=>child.textContent||'').join('')}});
       return elements.get(selector);
     } },
     fetch: async path => {
@@ -39,8 +39,8 @@ test('loads groups concurrently in the background and stops the old queue after 
   const context = vm.createContext({
     URL, console, setTimeout, clearTimeout,
     localStorage: { getItem: () => null },
-    document: { addEventListener(){}, querySelector: selector => {
-      if (!elements.has(selector)) elements.set(selector, {addEventListener(){}, classList:{toggle(){}}});
+    document: { addEventListener(){}, createElement: () => ({textContent:'',setAttribute(){}}), querySelector: selector => {
+      if (!elements.has(selector)) elements.set(selector, {addEventListener(){}, classList:{toggle(){}}, replaceChildren(){this.textContent=''}, append(...children){this.textContent+=children.map(child=>child.textContent||'').join('')}});
       return elements.get(selector);
     } },
     fetch: path => path === '/api/config'

@@ -380,13 +380,17 @@ async function mapPool(items, limit, work) {
   return output;
 }
 
-async function fetchSchedule(start, end) {
+export async function fetchSchedule(start, end, onProgress = () => {}, getHtml = url => session.getHtml(url)) {
   const first = mondayOf(start); const last = localDate(end); const weeks = [];
   for (let date = first; date <= last; date = addDays(date, 7)) weeks.push(isoDate(date));
   if (weeks.length > 30) throw new Error('Zakres może obejmować maksymalnie 30 tygodni.');
+  let completed = 0;
+  onProgress(completed, weeks.length);
   const parsed = await mapPool(weeks, 4, async (week) => {
     const url = new URL(USOS); url.searchParams.set('_action', 'home/plan'); url.searchParams.set('plan_division', 'week'); url.searchParams.set('plan_week_sel_week', week);
-    return parseWeekPlan(await session.getHtml(url), week);
+    const result = parseWeekPlan(await getHtml(url), week);
+    onProgress(++completed, weeks.length);
+    return result;
   });
   const events = parsed.flatMap((week) => week.events).filter((event) => event.date >= start && event.date <= end);
   return { start, end, events, weeks: weeks.length, fetchedAt: new Date().toISOString() };
@@ -564,6 +568,15 @@ const server = http.createServer(async (req, res) => {
       const start = url.searchParams.get('start'); const end = url.searchParams.get('end');
       if (!session.authenticated) return json(res, 401, { error: 'Najpierw zaloguj się do USOS ZUT.' });
       if (!validDate(start) || !validDate(end) || start > end) return json(res, 400, { error: 'Podaj poprawny zakres dat.' });
+      if (url.searchParams.get('stream') === '1') {
+        res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+        const send = message => res.write(`${JSON.stringify(message)}\n`);
+        try {
+          const schedule = await fetchSchedule(start, end, (completed, total) => send({ kind: 'progress', completed, total }));
+          send({ kind: 'result', schedule });
+        } catch (error) { send({ kind: 'error', error: error.message }); }
+        return res.end();
+      }
       return json(res, 200, await fetchSchedule(start, end));
     }
     if (url.pathname === '/api/alternatives') {

@@ -7,7 +7,7 @@ const defaultFormColors = { WK:'#2463d4', CW:'#159675', LB:'#805bd4', LE:'#d55e5
 const state = {
   authenticated: false,
   events: [], range: null, visibleMonday: null,
-  alternatives: new Map(), alternativeLoading: new Set(), alternativeQueued: new Set(), groupSchedules: new Map(), preloadPromise: null,
+  alternatives: new Map(), alternativeLoading: new Set(), alternativeQueued: new Set(), groupSchedules: new Map(), preloadPromise: null, preloadProgress: { completed: 0, total: 0 }, onPreloadProgress: null,
   hiddenOwn: new Set(), selectedAlternatives: new Set(), previews: new Map(),
   eventLookup: new Map(),
   album: '', selectionVersion: 0, selectedForms: new Set(), allowedForms: new Set(), generated: [], activePlan: null, savedView: false, activeTab: 'calendar',
@@ -23,8 +23,38 @@ function addDays(value,amount) { const d=typeof value==='string'?date(value):new
 function monday(value) { const d=typeof value==='string'?date(value):new Date(value); const n=d.getDay(); return addDays(d,n===0?-6:1-n); }
 function escapeHtml(value='') { return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 function toast(message,error=false) { const el=$('#toast');el.textContent=message;el.className=`toast show${error?' error':''}`;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.className='toast',4200); }
-function loading(on,note='Pobieram plan i porządkuję przedmioty.') { $('#loading').hidden=!on;$('#loading-note').textContent=note; }
+function loading(on,note='Pobieram plan i porządkuję przedmioty.') {
+  $('#loading').hidden=!on;
+  if(on){$('#loading-note').textContent=note;$('#loading-progress').removeAttribute('value');$('#loading-percent').hidden=true}
+}
+function loadingProgress(completed,total,note){
+  if(note)$('#loading-note').textContent=note;
+  const progress=$('#loading-progress'),percent=Math.round(completed/Math.max(total,1)*100);
+  progress.max=Math.max(total,1);progress.value=completed;
+  $('#loading-percent').textContent=`${percent}% · ${completed}/${total}`;$('#loading-percent').hidden=false;
+}
 async function api(path,options={}) { const response=await fetch(path,options);const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Błąd ${response.status}`);return body; }
+async function fetchScheduleWithProgress(start,end){
+  const response=await fetch(`/api/schedule?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&stream=1`);
+  if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`Błąd ${response.status}`)}
+  if(!response.body)throw new Error('Przeglądarka nie obsługuje strumieniowego pobierania planu.');
+  const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',schedule=null;
+  while(true){
+    const {value,done}=await reader.read();
+    pending+=decoder.decode(value||new Uint8Array(),{stream:!done});
+    const lines=pending.split('\n');pending=lines.pop();
+    for(const line of lines){
+      if(!line)continue;
+      const message=JSON.parse(line);
+      if(message.kind==='progress')loadingProgress(message.completed,message.total,`Pobieram plan: ${message.completed}/${message.total} tygodni.`);
+      if(message.kind==='error')throw new Error(message.error);
+      if(message.kind==='result')schedule=message.schedule;
+    }
+    if(done)break;
+  }
+  if(!schedule)throw new Error('Nie udało się pobrać planu.');
+  return schedule;
+}
 async function mapPool(items,limit,work) { let index=0;const runners=Array.from({length:Math.min(limit,items.length)},async()=>{while(index<items.length){const current=index++;await work(items[current],current)}});await Promise.all(runners); }
 
 function semesterDates(now=new Date()) {
@@ -53,8 +83,8 @@ $('#load-form').addEventListener('submit',async event=>{
       state.authenticated=true;showAccount(auth.defaultAlbum);
     }
     loading(true,'Pobieram plan i porządkuję przedmioty.');
-    const data=await api(`/api/schedule?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
-    state.events=data.events;state.range={start,end};state.alternatives.clear();state.alternativeLoading.clear();state.alternativeQueued.clear();state.groupSchedules.clear();state.hiddenOwn.clear();state.selectedAlternatives.clear();state.previews.clear();state.selectionVersion=0;state.generated=[];state.activePlan=null;state.savedView=false;state.activeTab='calendar';
+    const data=await fetchScheduleWithProgress(start,end);
+    state.events=data.events;state.range={start,end};state.alternatives.clear();state.alternativeLoading.clear();state.alternativeQueued.clear();state.groupSchedules.clear();state.preloadProgress={completed:0,total:0};state.onPreloadProgress=null;state.hiddenOwn.clear();state.selectedAlternatives.clear();state.previews.clear();state.selectionVersion=0;state.generated=[];state.activePlan=null;state.savedView=false;state.activeTab='calendar';
     state.selectedForms=new Set(data.events.map(e=>e.courseCode));state.allowedForms.clear();
     const today=iso(new Date());state.visibleMonday=monday(today>=start&&today<=end?today:start);
     const background=preloadAlternatives();state.preloadPromise=background;
@@ -81,21 +111,44 @@ function selectedGroupEntries(){
     return event?{name:event.courseName,form:event.type||event.typeShort,code,group}:null;
   }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name,'pl')||a.form.localeCompare(b.form,'pl')||a.group.localeCompare(b.group,'pl'));
 }
+function selectionChanges(){
+  const forms=new Map();
+  for(const event of state.events){
+    if(!forms.has(event.courseCode))forms.set(event.courseCode,{name:event.courseName,form:event.type||event.typeShort,code:event.courseCode,fromGroups:new Set(),toGroups:new Set()});
+    const form=forms.get(event.courseCode);
+    form.fromGroups.add(event.group);
+    if(!state.hiddenOwn.has(ownKey(event)))form.toGroups.add(event.group);
+  }
+  for(const key of state.selectedAlternatives){
+    const split=key.lastIndexOf('|'),form=forms.get(key.slice(0,split));
+    if(form)form.toGroups.add(key.slice(split+1));
+  }
+  const sorted=groups=>[...groups].sort((a,b)=>a.localeCompare(b,'pl',{numeric:true}));
+  return [...forms.values()].map(form=>({...form,fromGroups:sorted(form.fromGroups),toGroups:sorted(form.toGroups)}))
+    .sort((a,b)=>a.name.localeCompare(b.name,'pl')||a.form.localeCompare(b.form,'pl'));
+}
 function rememberSelection(){
   state.selectionVersion++;
   if(!state.album)return;
   try{localStorage.setItem(selectionStorageKey(),JSON.stringify(selectedGroupEntries()))}catch{toast('Nie udało się zapisać wyboru grup w tej przeglądarce.',true)}
 }
-async function restoreSelection(groups){
+async function restoreSelection(groups,onProgress){
   if(!Array.isArray(groups))throw new Error('Zapis wyboru grup jest nieprawidłowy.');
   const range=state.range,version=state.selectionVersion,chosen=new Set(groups.map(group=>`${group.code}|${group.group}`));
   state.hiddenOwn=new Set(state.events.filter(event=>!chosen.has(ownKey(event))).map(ownKey));
   state.selectedAlternatives.clear();state.previews.clear();renderTree();renderCalendar();
-  if(state.preloadPromise)await state.preloadPromise;
+  if(state.preloadPromise){
+    const progress=(completed,total)=>onProgress?.(completed,total,`Pobieram dane grup: ${completed}/${total}`);
+    if(onProgress){state.onPreloadProgress=progress;progress(state.preloadProgress.completed,state.preloadProgress.total)}
+    try{await state.preloadPromise}finally{if(state.onPreloadProgress===progress)state.onPreloadProgress=null}
+  }
   if(state.range!==range||state.selectionVersion!==version)return 0;
   const own=new Set(state.events.map(ownKey));
   const extra=groups.filter(group=>chosen.has(`${group.code}|${group.group}`)&&!own.has(`${group.code}|${group.group}`));
-  for(const code of new Set(extra.map(group=>group.code)))if(state.events.some(event=>event.courseCode===code)&&!state.groupSchedules.has(code))await loadAlternatives(code);
+  const missing=[...new Set(extra.map(group=>group.code))].filter(code=>state.events.some(event=>event.courseCode===code)&&!state.groupSchedules.has(code));
+  onProgress?.(0,missing.length||1,missing.length?`Ponawiam pobieranie grup: 0/${missing.length}`:'Odtwarzam wybrane grupy.');
+  let completed=0;
+  for(const code of missing){await loadAlternatives(code);onProgress?.(++completed,missing.length,`Ponawiam pobieranie grup: ${completed}/${missing.length}`)}
   if(state.range!==range||state.selectionVersion!==version)return 0;
   let restored=0;
   for(const group of extra){
@@ -107,6 +160,7 @@ async function restoreSelection(groups){
     restored++;
   }
   renderTree();renderCalendar();
+  if(!missing.length)onProgress?.(1,1,'Odtworzono wybrane grupy.');
   return restored;
 }
 
@@ -135,11 +189,11 @@ function eventCard({event,top,height,column,columns}){
 let participantRequest = 0;
 async function loadParticipants(event){
   const request = ++participantRequest;
-  const status = $('#participants-status'), list = $('#participants-list');
-  list.replaceChildren();list.hidden=true;
+  const status = $('#participants-status'), list = $('#participants-list'), progress=$('#participants-progress');
+  list.replaceChildren();list.hidden=true;progress.hidden=false;
   status.textContent='Pobieram listę uczestników…';
   const classId=event.classId||state.alternatives.get(event.courseCode)?.find(group=>group.group===event.group)?.classId;
-  if(!classId||!event.group){status.textContent='Lista uczestników jest niedostępna dla tych zajęć.';return;}
+  if(!classId||!event.group){status.textContent='Lista uczestników jest niedostępna dla tych zajęć.';progress.hidden=true;return;}
   try{
     const data=await api(`/api/group-participants?classId=${encodeURIComponent(classId)}&group=${encodeURIComponent(event.group)}`);
     if(request!==participantRequest)return;
@@ -148,6 +202,7 @@ async function loadParticipants(event){
     for(const person of data.participants){const li=document.createElement('li');li.textContent=person.name;list.append(li);}
     list.hidden=!data.participants.length;
   }catch(error){if(request===participantRequest)status.textContent=`Nie udało się pobrać listy uczestników. ${error.message}`;}
+  finally{if(request===participantRequest)progress.hidden=true}
 }
 
 function showEventDetails(event){
@@ -157,7 +212,7 @@ function showEventDetails(event){
   $('#detail-room').textContent=event.room?`${event.room}${event.building?' · '+event.building:''}`:'Nie podano';$('#detail-code').textContent=event.courseCode;$('#event-dialog').showModal();
   loadParticipants(event);
 }
-$('#event-dialog').addEventListener('close',()=>{participantRequest++;$('#participants-list').replaceChildren();});
+$('#event-dialog').addEventListener('close',()=>{participantRequest++;$('#participants-list').replaceChildren();$('#participants-progress').hidden=true;});
 $('#close-dialog').addEventListener('click',()=>$('#event-dialog').close());
 $('#event-dialog').addEventListener('click',event=>{if(event.target===$('#event-dialog'))$('#event-dialog').close()});
 
@@ -217,7 +272,7 @@ function formHtml(form,openKeys=new Set()){
   let alternatives='';const cached=state.alternatives.get(form.code),firstDate=[...form.groups.values()][0]?.[0]?.date||iso(state.visibleMonday);
   const groups=[...form.groups.entries()].map(([number,events])=>{const teachers=[...new Set(events.map(e=>e.lecturers).filter(Boolean))].join(', ')||'Prowadzący niepodany',key=`${form.code}|${number}`;return`<div class="group"><label><input class="own-toggle" type="checkbox" data-key="${escapeHtml(key)}" ${state.hiddenOwn.has(key)?'':'checked'}><span><b>${escapeHtml(groupLabel(number))} | ${escapeHtml(teachers)}</b></span></label></div>`}).join('');
   if(cached)alternatives=alternativesHtml(form.code,cached);
-  else if(state.alternativeLoading.has(form.code)||state.alternativeQueued.has(form.code))alternatives='<p class="form-note">Pobieram inne grupy…</p>';
+  else if(state.alternativeLoading.has(form.code)||state.alternativeQueued.has(form.code))alternatives='<div class="form-note">Pobieram inne grupy…<progress max="100" aria-label="Pobieranie innych grup"></progress></div>';
   else alternatives=`<button class="alt-load" data-code="${escapeHtml(form.code)}" data-date="${firstDate}">Ponów pobieranie innych grup</button>`;
   const treeKey=`form:${form.code}`;
   return`<details class="form" data-tree-key="${escapeHtml(treeKey)}" ${openKeys.has(treeKey)?'open':''}><summary>${escapeHtml(form.type||form.short)} <small>· ${escapeHtml(form.code)}</small></summary>${groups}<div class="alternatives">${alternatives}</div></details>`;
@@ -253,11 +308,17 @@ async function preloadAlternatives(){
   state.alternativeQueued=new Set(codes);
   let completed=0,failed=0;
   const progress=()=>{
+    state.preloadProgress={completed,total:codes.length};
+    state.onPreloadProgress?.(completed,codes.length);
     const status=$('#groups-progress');
     status.hidden=!codes.length;
-    status.textContent=completed<codes.length
+    const label=completed<codes.length
       ?`Pobieram inne grupy w tle: ${completed}/${codes.length}. Możesz korzystać z planu.`
       :failed?`Nie pobrano grup dla ${failed} przedmiotów. Ponów pobieranie w ich sekcjach.`:'Wszystkie grupy są gotowe.';
+    status.replaceChildren();
+    const text=document.createElement('span'),bar=document.createElement('progress');
+    text.textContent=label;bar.max=codes.length||1;bar.value=completed;bar.setAttribute('aria-label','Postęp pobierania innych grup');
+    status.append(text,bar);
   };
   progress();
   await mapPool(codes,2,async code=>{
@@ -346,8 +407,9 @@ async function runGenerator(){
   const missing=codes.filter(code=>!state.groupSchedules.has(code));
   if(missing.length){
     loading(true,`Pobieram terminy grup: 0/${missing.length}`);
+    loadingProgress(0,missing.length);
     let done=0;
-    try{await mapPool(missing,2,async code=>{await loadAlternatives(code);done++;$('#loading-note').textContent=`Pobieram terminy grup: ${done}/${missing.length}`})}
+    try{await mapPool(missing,2,async code=>{await loadAlternatives(code);done++;loadingProgress(done,missing.length,`Pobieram terminy grup: ${done}/${missing.length}`)})}
     finally{loading(false)}
   }
   if(state.range!==range)return;
@@ -411,7 +473,7 @@ function renderColorSettings(){
 $('#course-search').addEventListener('input',renderTree);
 $('#export-groups').addEventListener('click',()=>{
   if(!state.album){toast('Najpierw pobierz plan dla numeru albumu.',true);return}
-  const content=selectionToText(state.album,selectedGroupEntries());
+  const content=selectionToText(state.album,selectionChanges());
   const url=URL.createObjectURL(new Blob([content],{type:'text/plain;charset=utf-8'}));
   const link=document.createElement('a');link.href=url;link.download=`grupy-${state.album}.txt`;link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -424,7 +486,7 @@ $('#import-groups-file').addEventListener('change',async event=>{
     const selection=selectionFromText(await file.text());
     if(selection.album!==state.album)throw new Error(`Plik dotyczy numeru albumu ${selection.album}, a bieżący plan numeru ${state.album}.`);
     loading(true,'Wczytuję wybrane grupy i ich terminy.');
-    const restored=await restoreSelection(selection.groups);
+    const restored=await restoreSelection(selection.groups,loadingProgress);
     localStorage.setItem(selectionStorageKey(),JSON.stringify(selection.groups));
     toast(`Wczytano wybór grup z pliku TXT${restored?` (w tym ${restored} innych grup)`:''}.`);
   }catch(error){toast(error.message,true)}finally{loading(false)}

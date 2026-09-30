@@ -91,7 +91,7 @@
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <div id="loading" class="loading" hidden><div class="spinner"></div><b>Łączę się z USOSweb…</b><span id="loading-note">Pobieram plan i porządkuję przedmioty.</span></div>
+  <div id="loading" class="loading" hidden><div class="spinner"></div><b>Łączę się z USOSweb…</b><span id="loading-note">Pobieram plan i porządkuję przedmioty.</span><progress id="loading-progress" max="100" aria-label="Postęp ładowania"></progress><span id="loading-percent" hidden></span></div>
   <dialog id="event-dialog" class="event-dialog">
     <button id="close-dialog" class="dialog-close" aria-label="Zamknij">×</button>
     <p class="eyebrow">SZCZEGÓŁY ZAJĘĆ</p>
@@ -107,6 +107,7 @@
     <section class="participants" aria-labelledby="participants-title">
       <h4 id="participants-title">Uczestnicy zajęć</h4>
       <p id="participants-status" role="status"></p>
+      <progress id="participants-progress" max="100" aria-label="Pobieranie uczestników" hidden></progress>
       <ul id="participants-list" hidden></ul>
     </section>
   </dialog>
