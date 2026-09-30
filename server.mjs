@@ -403,6 +403,99 @@ async function fetchAlternatives(courseCode, date) {
   return { courseCode, date, events: parsed.events };
 }
 
+export function parseParticipants(html) {
+  const totalMatch = html.match(/<td\b[^>]*>\s*Liczba osób w grupie:\s*<\/td>\s*<td\b[^>]*>\s*(\d+)/i);
+  const total = totalMatch ? Number(totalMatch[1]) : null;
+  const label = /^(?:(?:Lista\s+)?(?:uczestników|uczestnikow|uczestnicy|studentów|studentow|studenci))(?:\s+(?:zajęć|grupy))?\s*[:(\d\s)]*$/i;
+  const sections = [];
+  for (const match of html.matchAll(/<(h[1-6]|td|th|legend)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    if (!label.test(stripTags(match[2]))) continue;
+    const tail = html.slice(match.index + match[0].length);
+    sections.push(match[1].toLowerCase() === 'td' || match[1].toLowerCase() === 'th'
+      ? tail.split(/<\/tr>/i)[0]
+      : tail.split(/<h[1-6]\b|<footer\b|<usos-footer\b/i)[0]);
+  }
+  const people = new Map();
+  // USOS renders the roster as a sortable table, without a participants heading.
+  // Only read rows following its name-column headers; teacher links live elsewhere.
+  for (const header of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const headings = [...header[1].matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)].map(cell => stripTags(cell[1]));
+    const surnameColumn = headings.findIndex(value => /^Nazwisko\b/i.test(value));
+    const givenColumn = headings.findIndex(value => /^Imiona?\b/i.test(value));
+    if (surnameColumn < 0 || givenColumn < 0) continue;
+    const body = html.slice(header.index + header[0].length).split(/<\/table>/i)[0];
+    for (const row of body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = [...row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map(cell => cell[1]);
+      const surname = cells[surnameColumn] || '', given = stripTags(cells[givenColumn] || '');
+      const link = [...surname.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
+        .find(match => attr(match[1], 'href').includes('katalog2/osoby/pokazOsobe'));
+      const id = link && attr(link[1], 'href').match(/os_id(?:=|:)(\d+)/)?.[1];
+      const family = link && stripTags(link[2]);
+      if (id && family && given) people.set(id, { name: `${given} ${family}` });
+    }
+  }
+  for (const section of sections) {
+    for (const match of section.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+      const href = attr(match[1], 'href');
+      if (!href.includes('katalog2/osoby/pokazOsobe')) continue;
+      const id = href.match(/os_id(?:=|:)(\d+)/)?.[1];
+      const name = stripTags(match[2]);
+      if (id && name && !people.has(id)) people.set(id, { name });
+    }
+  }
+  return { available: people.size > 0 || total === 0, participants: [...people.values()], total };
+}
+
+export function participantListUrl(html, base) {
+  for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    if (!/(?:lista|pokaż|zobacz).*?(?:uczestnik|student)|^(?:uczestnicy|studenci)$/i.test(stripTags(match[2]))) continue;
+    try {
+      const url = new URL(attr(match[1], 'href'), base);
+      if (url.origin === new URL(USOS).origin && url.pathname === '/kontroler.php' && url.href !== String(base)) return url;
+    } catch { /* Ignore malformed links. */ }
+  }
+  return null;
+}
+
+export function nextParticipantPage(html, base) {
+  const navigation = html.match(/<table-nav-bar\b[^>]*\bcurrent-elements-number=["'][^"']+["'][^>]*>/i)?.[0];
+  if (!navigation) return null;
+  const range = attr(navigation, 'current-elements-number').match(/^(\d+)\.\.(\d+)$/);
+  const count = Number(attr(navigation, 'elements-count'));
+  if (!range || Number(range[2]) >= count) return null;
+  const url = new URL(base);
+  const offset = Number(range[2]);
+  if (offset <= Number(url.searchParams.get('tab_offset') || 0)) throw new Error('Nie udało się odczytać kolejnej strony uczestników.');
+  url.searchParams.set('tab_offset', String(offset));
+  return url;
+}
+
+export async function fetchParticipants(classId, group, getHtml = url => session.getHtml(url)) {
+  const url = new URL(USOS);
+  url.searchParams.set('_action', 'katalog2/przedmioty/pokazZajecia');
+  url.searchParams.set('zaj_cyk_id', classId);
+  url.searchParams.set('gr_nr', group);
+  url.searchParams.set('tab_limit', '500');
+  url.searchParams.set('tab_offset', '0');
+  const html = await getHtml(url);
+  const result = parseParticipants(html);
+  if (result.available) {
+    let next = nextParticipantPage(html, url), pages = 1;
+    while (next) {
+      if (++pages > 100) throw new Error('Lista uczestników przekracza obsługiwany rozmiar.');
+      const pageHtml = await getHtml(next), page = parseParticipants(pageHtml);
+      if (!page.available || !page.participants.length) throw new Error('Nie udało się odczytać całej listy uczestników.');
+      result.participants.push(...page.participants);
+      next = nextParticipantPage(pageHtml, next);
+    }
+    return result;
+  }
+  const listUrl = participantListUrl(html, url);
+  if (!listUrl) return result;
+  const list = parseParticipants(await getHtml(listUrl));
+  return { ...list, total: list.total ?? result.total };
+}
+
 async function fetchCourseGroups(courseCode, date) {
   const url = new URL(USOS);
   url.searchParams.set('_action', 'katalog2/przedmioty/pokazPlanZajecPrzedmiotu');
@@ -410,20 +503,10 @@ async function fetchCourseGroups(courseCode, date) {
   url.searchParams.set('plan_division', 'semester');
   url.searchParams.set('prz_kod', courseCode);
   const groups = parseCourseGroups(await session.getHtml(url));
-  const enriched = await mapPool(groups, 4, async (group) => {
-    if (!group.classId) return { ...group, code: group.group };
-    const detailsUrl = new URL(USOS);
-    detailsUrl.searchParams.set('_action', 'katalog2/przedmioty/pokazZajecia');
-    detailsUrl.searchParams.set('zaj_cyk_id', group.classId);
-    detailsUrl.searchParams.set('gr_nr', group.group);
-    const html = await session.getHtml(detailsUrl);
-    const notes = html.match(/<td[^>]*>\s*Uwagi:\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i)?.[1] || '';
-    return { ...group, code: stripTags(notes) || group.group };
-  });
-  return { courseCode, groups: enriched };
+  return { courseCode, groups };
 }
 
-async function fetchGroupSchedule(courseCode, group, start, end) {
+export async function fetchCourseSchedule(courseCode, start, end, getHtml = url => session.getHtml(url)) {
   const first = mondayOf(start); const last = localDate(end); const weeks = [];
   for (let current = first; current <= last; current = addDays(current, 7)) weeks.push(isoDate(current));
   if (weeks.length > 30) throw new Error('Zakres może obejmować maksymalnie 30 tygodni.');
@@ -434,10 +517,26 @@ async function fetchGroupSchedule(courseCode, group, start, end) {
     url.searchParams.set('plan_division', 'week');
     url.searchParams.set('plan_week_sel_week', week);
     url.searchParams.set('prz_kod', courseCode);
-    return parseWeekPlan(await session.getHtml(url), week);
+    return parseWeekPlan(await getHtml(url), week);
   });
-  const events = parsed.flatMap((week) => week.events).filter((event) => event.group === group && event.date >= start && event.date <= end);
-  return { courseCode, group, start, end, events };
+  const events = parsed.flatMap((week) => week.events).filter((event) => event.date >= start && event.date <= end);
+  return { courseCode, start, end, events };
+}
+
+async function fetchGroupSchedule(courseCode, group, start, end) {
+  const result = await fetchCourseSchedule(courseCode, start, end);
+  return { ...result, group, events: result.events.filter(event => event.group === group) };
+}
+
+async function fetchCourseData(courseCode, start, end) {
+  const result = await fetchCourseSchedule(courseCode, start, end);
+  const groups = new Map();
+  for (const event of result.events) {
+    const group = groups.get(event.group) || { group: event.group, classId: event.classId, courseCode, courseName: event.courseName, type: event.type, lecturers: new Set() };
+    if (event.lecturers) group.lecturers.add(event.lecturers);
+    groups.set(event.group, group);
+  }
+  return { ...result, groups: [...groups.values()].map(group => ({ ...group, lecturers: [...group.lecturers].join(', ') })) };
 }
 
 function json(res, status, body) {
@@ -471,6 +570,19 @@ const server = http.createServer(async (req, res) => {
       const code = url.searchParams.get('courseCode'); const date = url.searchParams.get('date');
       if (!code || code.length > 160 || !validDate(date)) return json(res, 400, { error: 'Brak kodu przedmiotu lub daty.' });
       return json(res, 200, await fetchAlternatives(code, date));
+    }
+    if (url.pathname === '/api/group-participants') {
+      if (!session.authenticated) return json(res, 401, { error: 'Najpierw zaloguj się do USOS ZUT.' });
+      const classId = url.searchParams.get('classId'), group = url.searchParams.get('group');
+      if (!/^\d{1,20}$/.test(classId || '') || !/^\d{1,10}$/.test(group || '')) return json(res, 400, { error: 'Niepoprawny identyfikator zajęć lub grupy.' });
+      res.setHeader('Cache-Control', 'no-store');
+      return json(res, 200, await fetchParticipants(classId, group));
+    }
+    if (url.pathname === '/api/course-data') {
+      if (!session.authenticated) return json(res, 401, { error: 'Najpierw zaloguj się do USOS ZUT.' });
+      const code = url.searchParams.get('courseCode'), start = url.searchParams.get('start'), end = url.searchParams.get('end');
+      if (!code || code.length > 160 || !validDate(start) || !validDate(end) || start > end) return json(res, 400, { error: 'Niepoprawny przedmiot lub zakres dat.' });
+      return json(res, 200, await fetchCourseData(code, start, end));
     }
     if (url.pathname === '/api/course-groups') {
       const code = url.searchParams.get('courseCode'); const date = url.searchParams.get('date');

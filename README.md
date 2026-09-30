@@ -19,6 +19,13 @@ Aplikacja nasłuchuje tylko na adresie lokalnym. Hasło jest wpisywane wyłączn
 - Zaloguj się przez ZUT i wybierz zakres albo kliknij „Ustaw cały semestr”. Numer albumu zostanie pobrany automatycznie.
 - Nawiguj tygodniami w kalendarzu.
 - Po prawej rozwiń kierunek, przedmiot i formę zajęć.
-- Kliknij „Pokaż inne grupy w tym tygodniu”, a następnie wybraną grupę, aby nałożyć jej termin na kalendarz.
+- Przy kierunku możesz ukryć lub pokazać wszystkie jego wykłady. Litery przy nazwie przedmiotu pokazują stan każdej formy: czerwony oznacza brak zaznaczonych grup, zielony jedną, a żółty więcej niż jedną.
+- Wybór grup zapisuje się automatycznie w tej przeglądarce osobno dla każdego numeru albumu. Przyciski nad listą przedmiotów pozwalają zapisać go do czytelnego pliku TXT lub wgrać taki plik. Plik zawiera nazwę przedmiotu, formę, kod i numer grupy; można go wgrać tylko do planu tego samego numeru albumu.
+- Po pobraniu własnego planu kalendarz jest od razu dostępny. Pozostałe grupy i ich terminy pobierają się równolegle w tle, a postęp jest widoczny nad listą przedmiotów.
+- Zaznacz wybraną grupę, aby nałożyć jej terminy na kalendarz. Przełączanie grup i tygodni korzysta z danych w pamięci, bez kolejnego pobierania zajęć.
+- Jeśli pobranie grup dla przedmiotu nie powiedzie się, ponów je przyciskiem w jego sekcji.
+- W szczegółach zajęć można odczytać listę uczestników, jeśli zalogowane konto ma do niej dostęp w USOS.
+- W zakładce „Generator i zapisane plany” zaznacz przedmioty i formy, na które chcesz chodzić. Przy wybranej formie możesz dopuścić jej kolizje z innymi zajęciami. Kliknij „Generuj plany”, aby zobaczyć do trzech wariantów z jedną grupą na formę. Generator najpierw ogranicza niedopuszczone kolizje, a potem pozostałe. Następnie porównuje długość okienek, liczbę dni z zajęciami i liczbę dni z pojedynczym spotkaniem w całym pobranym zakresie.
+- Nadaj nazwę i zapisz widoczny plan. Zapisane plany są dostępne na stronie startowej i w sekcji generatora, także po ponownym uruchomieniu aplikacji. Są przechowywane w pamięci tej przeglądarki.
 
 Kod kierunku jest odczytywany z kodu przedmiotu USOS (np. `IIN-S1`). Dzięki temu zajęcia z dwóch kierunków są rozdzielone nawet wtedy, gdy mają taką samą nazwę.

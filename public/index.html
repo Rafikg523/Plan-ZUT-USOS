@@ -35,19 +35,38 @@
       </form>
     </section>
 
+    <section id="saved-home" class="saved-home" hidden>
+      <h2>Zapisane plany</h2>
+      <div id="saved-home-list"></div>
+    </section>
+
     <section id="workspace" class="workspace" hidden>
       <div class="workspace-head">
-        <div><p class="eyebrow">KALENDARZ</p><h2 id="range-title">Twój plan</h2></div>
+        <div><p class="eyebrow">PLAN ZAJĘĆ</p><h2>Twój plan</h2></div>
         <div class="workspace-actions">
           <button id="change-account" class="change-range">Zmień konto</button>
           <button id="change-range" class="change-range">Zmień dane</button>
-          <div class="week-nav">
-            <button id="prev-week" aria-label="Poprzedni tydzień">←</button>
-            <button id="today">Dzisiaj</button>
-            <button id="next-week" aria-label="Następny tydzień">→</button>
-          </div>
         </div>
       </div>
+      <div class="workspace-tabs" role="tablist" aria-label="Widok planu">
+        <button id="calendar-tab" type="button" role="tab" aria-selected="true" aria-controls="calendar-panel">Kalendarz</button>
+        <button id="generator-tab" type="button" role="tab" aria-selected="false" aria-controls="generator">Generator i zapisane plany</button>
+      </div>
+      <section id="generator" class="generator" role="tabpanel" aria-labelledby="generator-tab" hidden>
+        <div class="generator-head"><div><p class="eyebrow">GENERATOR PLANU</p><h3>Wybierz zajęcia i formy</h3><p>Z każdej zaznaczonej formy wybierzemy jedną grupę. Najpierw ograniczymy kolizje, potem okienka, dni z zajęciami i dni z pojedynczym spotkaniem.</p></div><button id="generate-plans" class="generate-button">Generuj plany</button></div>
+        <div id="generator-forms" class="generator-forms"></div>
+        <div id="generated-results" class="generated-results" hidden></div>
+        <div class="saved-head"><h3>Zapisane plany</h3><input id="plan-name" aria-label="Nazwa planu" placeholder="Nazwa planu"><button id="save-plan" disabled>Zapisz widoczny plan</button></div>
+        <div id="saved-plans" class="saved-plans"></div>
+        <div id="generator-calendar-mount"></div>
+      </section>
+      <section id="calendar-panel" role="tabpanel" aria-labelledby="calendar-tab">
+      <div id="calendar-content">
+      <div class="week-toolbar"><h3 id="range-title">Twój plan</h3><div class="week-nav">
+        <button id="prev-week" type="button" aria-label="Poprzedni tydzień">←</button>
+        <button id="today" type="button">Dzisiaj</button>
+        <button id="next-week" type="button" aria-label="Następny tydzień">→</button>
+      </div></div>
       <div class="planner">
         <div class="calendar-wrap">
           <div id="calendar" class="calendar"></div>
@@ -56,6 +75,8 @@
         <aside class="sidebar">
           <div class="side-head"><div><span>PRZEDMIOTY</span><b id="course-count">0</b></div><input id="course-search" type="search" placeholder="Szukaj przedmiotu…"></div>
           <div class="legend">Zaznacz grupy, które chcesz widzieć w kalendarzu.</div>
+          <div class="group-selection-actions"><button id="export-groups" type="button">Zapisz grupy do TXT</button><button id="import-groups" type="button">Wgraj grupy z TXT</button><input id="import-groups-file" type="file" accept=".txt,text/plain" aria-label="Plik TXT z wybranymi grupami" hidden></div>
+          <div id="groups-progress" class="legend" role="status" aria-live="polite" hidden></div>
           <div id="course-tree" class="course-tree"></div>
         </aside>
       </div>
@@ -63,6 +84,8 @@
         <div class="color-settings-head"><div><p class="eyebrow">KOLORY</p><h3>Kolory form zajęć</h3></div><button id="reset-colors">Przywróć domyślne</button></div>
         <div id="color-options" class="color-options"></div>
         <p>Ustawienia są zapisywane automatycznie w tej przeglądarce.</p>
+      </section>
+      </div>
       </section>
     </section>
   </main>
@@ -81,6 +104,11 @@
       <div><span>Sala</span><b id="detail-room"></b></div>
       <div class="detail-wide"><span>Kod przedmiotu</span><b id="detail-code"></b></div>
     </div>
+    <section class="participants" aria-labelledby="participants-title">
+      <h4 id="participants-title">Uczestnicy zajęć</h4>
+      <p id="participants-status" role="status"></p>
+      <ul id="participants-list" hidden></ul>
+    </section>
   </dialog>
   <script type="module" src="/app.js"></script>
 </body>
